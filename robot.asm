@@ -2,8 +2,8 @@
 ;  PROGRAMA : Lee dos sensores de linea y un sensor de proximidad de objeto.
 ;  OBJETIVO : (del robot): No irse del ring. Girar hasta encontrar oponente. Embestirlo. Si no hay, moverse y girar.
 ;
-;
-;  Estructura de Control:         " Bucle que se repite infinitamente"
+;  Autor alejandrodherme@gmail.com
+;  Licencia GPLv3
 ;
 ;****************************************************************************************************************************
 
