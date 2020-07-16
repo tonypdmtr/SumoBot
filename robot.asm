@@ -2,7 +2,7 @@
 ;  PROGRAMA : Lee dos sensores de linea y un sensor de proximidad de objeto.
 ;  OBJETIVO : (del robot): No irse del ring. Girar hasta encontrar oponente. Embestirlo. Si no hay, moverse y girar.
 ;
-;  Autor alejandrodherme@gmail.com
+;  Autor adhsoft0@gmail.com
 ;  Licencia GPLv3
 ;
 ;****************************************************************************************************************************
