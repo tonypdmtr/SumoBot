@@ -166,14 +166,17 @@ BUS_MHZ             def       BUS_KHZ/1000
 
 #ifhcs
 ?calc_fll_factor    macro
-          #ifdef _FL_
-CHOICES$$$          equ       2
+          #ifdef _QD_
+                    #temp1    1
+                    mset      0,512
+          #else ifdef _FL_
+                    #temp1    2
                     mset      0,512,608
           #else ifdef _PA_¦_PT_¦_PL_
-CHOICES$$$          equ       1
+                    #temp1    1
                     mset      0,1024
           #else
-CHOICES$$$          equ       6
+                    #temp1    6
                     mset      0,512,1024,1536,608,1216,1824
           #endif
                     mdo
@@ -185,7 +188,7 @@ FLL_FACTOR          def       :temp
           #endif
           #endif
           #endif
-                    mloop     CHOICES$$$
+                    mloop     :temp1
                     endm
                     @?calc_fll_factor
 FLL_FACTOR          def       512
@@ -370,6 +373,8 @@ Atomic              macro     [@]CmdToDo[,Parameter]*
 SkipChar            macro     [[#]Character]
                     mset      #
           #ifnb ~1~
+                    #push
+                    #spauto   :sp
                     psha
                     @@_lda_   ~1~
           #endif
@@ -380,6 +385,7 @@ Loop$$$
 Done$$$
           #ifnb ~1~
                     pula
+                    #pull
           #endif
                     endm
 
@@ -391,6 +397,8 @@ Done$$$
 EatChar             macro     [[#]Character]
                     mset      #
           #ifnb ~1~
+                    #push
+                    #spauto   :sp
                     psha
                     @@_lda_   ~1~
           #endif
@@ -398,6 +406,7 @@ EatChar             macro     [[#]Character]
                     aix       #-1                 ;;went too far, back up one
           #ifnb ~1~
                     pula
+                    #pull
           #endif
                     endm
 
@@ -575,10 +584,26 @@ Var                 macro     Size[,MaxSizeForRAM]
                     endm
 
 ;*******************************************************************************
-; Repeat a number of instructions a constant number of times
-; Example:          @rep      2,lsla,rolx         ;shift left XA twice
 
-Rep                 macro     Times,Instruction1[,Instruction2]*
+asciz               macro     Size
+          #if * < EEPROM
+                    rmb       ~1~+1
+          #else
+                    fcb:{~1~+1} 0
+          #endif
+          #ifnb ~label~
+                    #size     ~label~
+          #endif
+                    endm
+
+;*******************************************************************************
+; Repeat one or more user instructions a given number of times
+; Example1:         @rep      #2,lsla,rolx        ;shift left XA twice
+; Example2:         @rep      count@@,sp          ;repeat NOP count@@,sp times
+;                   nop
+;                   mresume
+
+Rep                 macro     [#]Times[,Instruction]*
     #if :n = 1                                    ;;block follows macro
                     mset      #
                     mreq      1:Times
@@ -596,7 +621,7 @@ Loop$$$
                     dbnza     Loop$$$             ;;one less iteration to go
                     pula                          ;;restore user's A
           #else if ::~1,~ = 2
-                    pshhx                         ;;protect user's A
+                    pshhx                         ;;protect user's HX
                     ldhx      ~1~                 ;;HX = counter value
 Loop$$$
                     pshhx                         ;;save current counter
@@ -614,8 +639,8 @@ Loop$$$
                     #pull
                     mexit
     #endif
-                    mreq      1,2:Times,Instruction1[,Instruction2]*
-          #ifz ~1~
+                    mreq      1,2:[#]Times,Instruction[,Instruction]*
+          #ifz ~#1~
                     mexit                         ;;nothing to do
           #endif
                     mdo       2
@@ -627,7 +652,7 @@ Loop$$$
           #endif
                     ~{:mloop}.~
                     mloop     :n
-                    mtop      ~1~
+                    mtop      ~#1~
                     endm
 
 ;*******************************************************************************
@@ -742,13 +767,15 @@ _needs_spauto_      macro
 ; (This is meant to be called from other macros -- not to be called directly)
 
 _not_x_             macro
-                    mset      #
+                    mset      #' '
           #ifb ~1~
                     mexit                         ;;nothing to do
           #endif
           #ifparm ~'~,1~'.{:1}~ = x
-                    mstop     X-index not allowed (~1~)
+                    #Error    X-index not allowed (~1~)
           #endif
+                    mdel      1
+                    mtop
                     endm
 
 ;*******************************************************************************
@@ -756,12 +783,15 @@ _not_x_             macro
 ; (This is meant to be called from other macros -- not to be called directly)
 
 _not_#_             macro
+                    mset      #' '
           #ifb ~1~
                     mexit                         ;;nothing to do
           #endif
           #ifparm ~#~
-                    mstop     Immediate mode not allowed (~1~)
+                    #Error    Immediate mode not allowed (~1~)
           #endif
+                    mdel      1
+                    mtop
                     endm
 
 ;*******************************************************************************
@@ -769,12 +799,15 @@ _not_#_             macro
 ; (This is meant to be called from other macros -- not to be called directly)
 
 _#_                 macro
+                    mset      #' '
           #ifb ~1~
                     mexit                         ;;nothing to do
           #endif
           #ifb ~#~
-                    mstop     Immediate mode expected (~1~)
+                    #Error    Immediate mode expected (~1~)
           #endif
+                    mdel      1
+                    mtop
                     endm
 
 ;*******************************************************************************
@@ -854,17 +887,28 @@ _size_              macro     Label[,ExpectedSize]*
 ; Finally, load HX from the referenced location, regardless of addressing mode.
 ; (This is meant to be called from other macros -- not to be called directly)
 
-_ldhx_              macro     Parm[,RegHX]
+_ldhx_              macro     Parm[ RegHX]
+                    mset      #' '
                     mreq      1:Parm[,RegHX]
                     mdef      2,~text~
                     mset      0,~2~               ;;use this as new default
           #ifb ~2~
                     merror    RegHX location is needed 1st time
           #endif
-          #ifnoparm ~,1~ = ,spx                   ;except for SPX mode ...
           #ifparm ~'~,1~'.{:1}~ = x               ;for any X-indexed mode
+            #ifparm ~,1~ = ,spx                   ;for SPX mode ...
+                    tsx                           ;reload stack frame pointer
+            #else                                 ;for all others
+              #ifhcs
                     ldhx      ~2~                 ;reload original HX
-          #endif
+              #else
+                    psha
+                    lda       ~2~                 ;reload original HX
+                    ldx       ~2,~+1~,2~
+                    tah
+                    pula
+              #endif
+            #endif
           #endif
                     @lea      ~1~                 ;load actual parameter
                     endm
@@ -970,32 +1014,58 @@ PUE                 macro     PortLabel
                     endm
 
 ;*******************************************************************************
+; Check if a parameter is pointer
+
+_need_pointer_      macro     pointer_variable
+                    mreq      1:pointer_variable
+                    mset      0,Pointer (~1~) must be a word variable
+          #ifparm ~#~
+                    mstop     ~text~
+          #else if ::~1,~ <> 2
+                    mstop     ~text~
+          #endif
+          #ifb ~1.1.1~ = .
+          #ifb ~1.1.2~ = ?.
+          #ifb ~1,~ == _PC_
+          #ifb ~1.1.2~ == pc
+                    #Hint     By convention, start pointers with dot (~1~ => .~1~)
+          #endif
+          #endif
+          #endif
+          #endif
+                    endm
+
+;*******************************************************************************
 ; Get A from the location pointed to by the parm, while bumping up that pointer
 
-GetNextA            macro     Pointer
-                    mreq      1:Pointer
-          #ifparm ~#~
-                    mstop     Pointer (~1~) must be a word variable
-          #endif
+GetNextA            macro     Pointer [DoneOnZero]
+                    mset      #' '
+                    @@_need_pointer_ ~1~
                     @@_not_x_ ~@~
           #ifhcs
-                    ldhx      ~@~
+                    ldhx      ~1~
                     lda       ,x
+            #ifnb ~2~
+                    beq       ~2~
+            #endif
                     aix       #1
-                    sthx      ~@~
+                    sthx      ~1~
           #else
                     #push
                     #spauto   :sp
-                    ldx       ~@~
+                    ldx       ~1~
                     pshx
-                    ldx       ~1,~+1~,1~,~2~
+                    ldx       ~1,~+1~,1~
                     pulh
                     lda       ,x
+            #ifnb ~2~
+                    beq       ~2~
+            #endif
                     aix       #1
-                    stx       ~1,~+1~,1~,~2~
+                    stx       ~1,~+1~,1~
                     pshx
                     thx
-                    stx       ~@~
+                    stx       ~1~
                     pulx
                     #pull
           #endif
@@ -1004,30 +1074,34 @@ GetNextA            macro     Pointer
 ;*******************************************************************************
 ; Put A into the location pointed to by the parm, while bumping up that pointer
 
-PutNextA            macro     Pointer
-                    mreq      1:Pointer
-          #ifparm ~#~
-                    mstop     Pointer (~1~) must be a word variable
-          #endif
-                    @@_not_x_ ~@~
+PutNextA            macro     Pointer [DoneOnZero]
+                    mset      #' '
+                    @@_need_pointer_ ~1~
+                    @@_not_x_ ~1~
           #ifhcs
-                    ldhx      ~@~
+                    ldhx      ~1~
                     sta       ,x
+            #ifnb ~2~
+                    beq       ~2~
+            #endif
                     aix       #1
-                    sthx      ~@~
+                    sthx      ~1~
           #else
                     #push
                     #spauto   :sp
-                    ldx       ~@~
+                    ldx       ~1~
                     pshx
-                    ldx       ~1,~+1~,1~,~2~
+                    ldx       ~1,~+1~,1~
                     pulh
                     sta       ,x
+            #ifnb ~2~
+                    beq       ~2~
+            #endif
                     aix       #1
-                    stx       ~1,~+1~,1~,~2~
+                    stx       ~1,~+1~,1~
                     pshx
                     thx
-                    stx       ~@~
+                    stx       ~1~
                     pulx
                     #pull
           #endif
@@ -1095,9 +1169,8 @@ lea                 macro
             #else
                     psha
                     lda       ~[1.-1]~
-                    psha
                     ldx       ~[1.-2]~
-                    pulh
+                    tah
                     pula
             #endif
                     mexit
@@ -1108,9 +1181,8 @@ lea                 macro
             #else
                     psha
                     lda       ~[1.-1]~
-                    psha
                     ldx       ~[1.-2]~
-                    pulh
+                    tah
                     pula
             #endif
                     mexit
@@ -1154,9 +1226,8 @@ lea                 macro
             #else
                     psha
                     lda       ~[1.-1]~
-                    psha
                     ldx       ~[1.-2]~
-                    pulh
+                    tah
                     pula
             #endif
                     mexit
@@ -1171,8 +1242,7 @@ lea                 macro
 gcd                 macro     a,b
           #ifz ~1~
                     mexit     1
-          #endif
-          #ifz ~2~
+          #else ifz ~2~
                     mexit     1
           #endif
           #if ~1~ = ~2~
@@ -1180,8 +1250,7 @@ gcd                 macro     a,b
 ~label~             set       ~1~
               #endif
                     mexit     ~1~
-          #endif
-          #if ~1~ > ~2~
+          #else if ~1~ > ~2~
                     mset      1,{~1~-{~2~}}
                     mtop
           #endif
@@ -1210,6 +1279,9 @@ lcm                 macro     a,b
 Vector              macro     Vvector,ISR_Address
           #ifb ~2~
             #ifndef ~1~
+              #ifdef ...
+                    #Hint     Missing \@~1~\@ vector ignored
+              #endif
                     mexit                         ;avoids error on empty but undefined vectors
             #endif
           #endif
@@ -1404,16 +1476,16 @@ ClrVar              macro     Variable
                     pulhx
                     mexit
               #endif
-                    push
-                    clra
-                    clrh
-                    ldx       #::~1~
-Loop$$$
-                    sta       ~1~-1,ax
-                    dbnzx     Loop$$$
-                    pull
-                    mexit
             #endif
+                    pshhx
+                    ldhx      #~1~+::~1~
+Loop$$$
+                    aix       #-1
+                    clr       ,ax
+                    cphx      #~1~
+                    bne       Loop$$$
+                    pulhx
+                    mexit
           #endif
           #if ::~1,~ <= 8
             #ifnb ~,1~
@@ -1515,14 +1587,15 @@ clr.s               macro     Variable [Size]
 ;*******************************************************************************
 ; INC for any sized variable
 
-inc.s               macro     Variable
-                    mset      #
+inc.s               macro     Variable [Branch]
+                    mset      #' '
                     mreq      1
+                    mdef      2,Done$$$
                     @@_nosize_ ~1~
                     mdo
                     inc       ~1,~+{::~1,~-:mloop}~,1~
           #if :mloop <> ::~1,~
-                    bne       Done$$$
+                    bne       ~2~
           #endif
                     mloop     ::~1,~
 Done$$$
@@ -2019,12 +2092,17 @@ cmp.s               macro     [#]Operand1 [#]Operand2
 
 ;*******************************************************************************
 ; DIV for any sized variable (HX assumed already set with appropriate values)
+; Optionally, the 8-bit divisor can be provided as second argument
 
-div.s               macro     Variable
-                    mset      #
+div.s               macro     Variable [[#]divisor8]
+                    mset      #' '
                     mreq      1
                     @@_not_x_ ~1~
                     @@_nosize_ ~1~
+          #ifnb ~2~
+                    ldx       ~2~
+                    clrh
+          #endif
                     #temp     1
           #ifnb ~'~,1~'.1.3~ = ,sp                ;;sees SP or SPX index
             #iftos ~1,~
@@ -2086,441 +2164,6 @@ Loop$$$
                     #pull
                     !jmp      Loop$$$
 Done$$$
-                    endm
-
-;*******************************************************************************
-; Math-related
-
-_FindStkMth_        macro     BitVersion
-                    #temp
-                    mdo       ~1~/8               ;;find the next highest bit version included (but not less than requested)
-            #ifdef _STKMTH{:mloop*8}_
-              #ifz :temp
-                    #temp     :mloop*8            ;;found
-              #endif
-            #endif
-                    mloop     8                   ;;highest possible is 64 (8x8)
-            #ifz :temp
-                    mstop     Include STKMTH{~1~}.SUB (or higher)
-            #endif
-                    mexit     :temp
-                    endm
-;-------------------------------------------------------------------------------
-_StkMthMax_         macro     Expression
-                    mset      #
-                    mtrim     1
-                    #temp
-                    mdo
-                    mset      0,~'=()+-*\/&|^><'{:mloop}~
-                    mtrim     0
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifparm ~text.1.1~~text.{:text}~ = []
-                    mset      0,~text.2.{:text-2}~
-          #endif
-                    mset      0,~text,~           ;;remove possible index
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifparm ~text.1.1~ = #
-                    mset      0,~text.2~          ;;remove # from number
-          #endif
-          #ifnb ~text~
-            #ifnb ~text.1.1~ = .
-                    #Warning  Pointers (~text~) have unknown size
-            #endif
-            #ifnum ~text~                         ;estimate byte size for numeric constant
-              #ifnz ~text~>16
-                #if 3 > :temp
-                    #temp     3
-                #endif
-              #endif
-              #ifnz ~text~>24
-                #if 4 > :temp
-                    #temp     4
-                #endif
-              #endif
-            #endif
-            #ifb ~text.1.1~ = :
-              #ifnonum ~text~
-                #ifdef ~text~
-                  #if {::~text~} > :temp
-                    #temp     ::~text~
-                  #endif
-                #endif
-              #endif
-            #endif
-          #endif
-                    mloop     {:1/2}              ;;max term/factor estimate
-          #ifz :temp
-                    #Warning  Undetermined bit-size (using 32-bit)
-                    #temp     4
-          #endif
-;         #ifb \@~'*'~\@ = \@~1~\@                ;if any multiplication is present
-;           #if :temp < 4
-;                   #temp     :temp+1             ;give some more bits (normally double, but on average this is OK)
-;           #endif
-;         #endif
-          #if :temp > 8                           ;for exceptional cases, enforce
-                    #temp     8                   ;maximum available bit-size
-          #endif
-                    @_FindStkMth_ {:temp*8}
-                    endm
-
-;-------------------------------------------------------------------------------
-; Default version -- works with signed/unsigned operands
-; (In :MEXIT, it returns the actual bit-size used)
-
-Eval                macro     Expression
-                    #push
-                    #HideMacros
-                    mset      #
-                    mtrim     1
-                    @@_StkMthMax_ ~1~
-                    #temp      :mexit
-                    @@_FindStkMth_ {:temp}
-                    #temp     :mexit
-                    @@Eval{:temp} ~1~
-                    mset      0,{:spcheck},{:spfree-:ais},{:ais}
-                    #pull
-          #ifspauto
-                    #spauto   ~text,~
-                    #spadd    ~text','2~
-                    #ais
-                    #spadd    ~text','3~
-          #endif
-                    mexit     {:temp}
-                    endm
-
-;-------------------------------------------------------------------------------
-; Signed version -- gives warning to alert you if SIGNED was not defined
-; (In :MEXIT, it returns the actual bit-size used)
-
-EvalS               macro     Expression
-                    mset      #
-                    @@_signed_
-                    @Eval     ~1~
-                    endm
-
-;-------------------------------------------------------------------------------
-
-_Eval_              macro     [BitSize,]Expression (eg. [ans=](a+b)*(a-b)/2)
-          #if :macronest = 1
-                    mstop     Macro not to be called directly (eg. use @Eval32)
-          #endif
-          #ifb ~00~ = ~0~
-                    @@_needs_spauto_
-                    mdef      1,32
-                    mswap     0,1                 ;;bitsize now in ~ text ~
-                    mdel      1
-                    mset      #
-                    @@Msg     --------------------------------------------------
-                    @@Msg     Expr: ~1~
-                    @@Msg     --------------------------------------------------
-                    @@_FindStkMth_ ~text~
-                    mset      0,{:mexit},~text~   ;;(bitsize to use, actual bitsize)
-          #endif
-                    mset      #
-                    mreq      1:Expression (eg. [ans=](a+b)*(a-b)/2 -- spaces OK)
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifb ~00~ = ~0~
-                    mtrim     1                   ;;remove all spaces
-                    mset      #'='                ;;split on assignment (if any)
-            #if :nn > 2
-                    mstop     Too many assignment operators
-            #endif
-            #if :nn > 1
-                    @@~0~     ~2~
-          ;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-
-                    mset      9                   ;;assume signed (when SIGNED)
-              #ifparm ~1.1.1~~1.{:1}~ = []
-                    mset      9,unsigned
-                    mset      1,~1.2.{:1-2}~
-              #endif
-          ;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-
-              #ifparm ~1.1.1~ = .                 ;;pointers ...
-                #if ~text,~/8 <> ~text','2~/8
-                    @@ResizeTOS #~text,~/8\,#~text','2~/8\,\,~9~
-                    @@lea     ~1~
-                    @@_?sei_  ~1~
-                    @@pullv   ~1~ ~text','2~/8    ;;are resized and then pulled
-                    @_?cli_   ~1~
-                    mexit
-                #endif
-              #endif
-              #ifdef ~1,~                         ;;if assignment var defined
-                    @Save~text,~ ~1~              ;;save to it
-                    mexit
-              #endif
-              #ifparm ~,1~ = ,spx                 ;;SPX is SP-equivalent in EVAL
-                    mset      1,~1,~,sp           ;;change to SP-index
-              #endif
-              #ifparm ~,1~ = ,sp                  ;;else, if SP-indexed
-~1,~                equ       ::,~text,~/8        ;;leave on stack with this name
-                    @@Msg     Saved to TOS (~1,~)
-                    mexit
-              #endif
-                    merror    Unknown variable \@~1~\@
-            #endif
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifstr ~1~
-            #if :1-2 > 4
-                    mstop     String constant (~1~) too long
-            #endif
-                    @Load~text,~ #~1~
-                    mexit
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifparm ~1.1.1~ = -                     ;;process leading negative
-            #ifnum ~1~
-                    @Load~text,~ #~1~             ;;numerics use immediate mode
-                    mexit
-            #endif
-            #ifdef ~1.2~
-              #ifz ::~1.2~
-                    @Load~text,~ #~1~             ;;named constants use immediate mode
-                    mexit
-              #endif
-            #endif
-                    @~0~      #0~1~               ;;anything else, subtract from zero
-                    mexit
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-                    mset      #'+-|^'             ;;split terms
-          #if :nn > 1
-                    mdo       2
-                    @@~0~     ~{:nn-:mloop+2}.2~  ;;process terms right to left
-                    mloop     :nn
-                    @@~0~     ~1~                 ;;the first term without operator
-                    mdo       2
-            #ifparm ~{:mloop}.1.1~ = +
-                    @@Msg     Add~text,~
-                    call      StackAdd~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-            #ifparm ~{:mloop}.1.1~ = -
-                    @@Msg     Sub~text,~
-                    call      StackSub~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-            #ifparm ~{:mloop}.1.1~ = |
-                    @@Msg     Or~text,~
-                    call      StackOr~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-            #ifparm ~{:mloop}.1.1~ = ^
-                    @@Msg     Xor~text,~
-                    call      StackXor~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-                    mloop     :nn
-                    mexit
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-                    mset      #'*\/&><'           ;;split factors
-          #if :nn > 1
-                    mdo       2
-                    @@~0~     ~{:nn-:mloop+2}.2~  ;;process factors right to left
-                    mloop     :nn
-                    @@~0~     ~1~                 ;;the first factor without operator
-                    mdo       2
-            #ifparm ~{:mloop}.1.1~ = *
-                    @@Msg     Mul~text,~
-                    call      StackMul~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-            #ifparm ~{:mloop}.1.1~ = /
-                    @@Msg     Div~text,~
-                    call      StackDiv~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-            #ifparm ~{:mloop}.1.1~ = \
-                    @@Msg     Mod~text,~
-                    call      StackMod~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-            #ifparm ~{:mloop}.1.1~ = &
-                    @@Msg     And~text,~
-                    call      StackAnd~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-            #ifparm ~{:mloop}.1.1~ = >
-                    @@Msg     Shr~text,~
-                    call      StackShr~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-            #ifparm ~{:mloop}.1.1~ = <
-                    @@Msg     Shl~text,~
-                    call      StackShl~text,~
-                    #spadd    -{~text,~/8}
-            #endif
-                    mloop     :nn
-                    mexit
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifparm ~1.1.4~~1.{:1}~ = NEG()         ;;do NEG(ate) function
-                    @@~0~     ~1.5.{:1-5}~
-                    @@Msg     Neg~text,~
-                    call      StackNegate~text,~
-                    mexit
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifparm ~1.1.4~~1.{:1}~ = ABS()         ;;do ABS(olute) function
-                    @@~0~     ~1.5.{:1-5}~
-                    @@Msg     Abs~text,~
-                    call      StackAbs~text,~
-                    mexit
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifparm ~1.1.4~~1.{:1}~ = SQR()         ;;do SQR() function -- square
-                    @@~0~     ~1.5.{:1-5}~
-                    @@Msg     Sqr~text,~(TOS)
-                    tsx
-                    call      StackLoad~text,~
-                    call      StackMul~text,~
-                    mexit
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifparm ~1.1.1~~1.{:1}~ = ()            ;;process parenthesized sub-expression
-                    @~0~      ~1.2.{:1-2}~
-                    mexit
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-                    mset      9                   ;;assume signed (when SIGNED)
-          #ifparm ~1.1.1~~1.{:1}~ = []
-                    mset      9,unsigned
-                    mset      1,~1.2.{:1-2}~
-          #endif
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-          #ifnum ~#1~
-                    mset      1,#~#1~             ;;numerics use immediate mode
-          #endif
-          #ifparm ~1.1.2~ = -:
-                    mset      1,#~1~              ;;negative internal symbol use immediate
-          #endif
-          #ifparm ~1.1.1~ = :
-                    mset      1,#~1~              ;;positive internal symbol use immediate
-          #endif
-          #ifb ~,1~
-            #ifdef ~#1~
-              #ifz ::~#1~
-                    mset      1,#~#1~             ;;named constants use immediate
-              #endif
-            #endif
-          #endif
-          #ifparm ~,1~ = ,spx                     ;;SPX is SP-equivalent in EVAL
-                    mset      1,~1,~,sp           ;;change to SP-index
-          #endif
-          #ifparm ~1.1.1~ = .                     ;;pointers ...
-            #if ~text','2~/8 <> ~text,~/8
-                    @@_?sei_  ~1~
-                    @@pushv   ~1~ ~text','2~/8    ;;are pushed and then resized
-                    @@_?cli_  ~1~
-                    @ResizeTOS #~text','2~/8\,#~text,~/8\,\,~9~
-                    mexit
-            #endif
-          #endif
-          #ifnb ~9~
-                    mset      1,[~1~]
-          #endif
-                    @Load~text,~ ~1~              ;;anything else, load as is
-                    endm
-;-------------------------------------------------------------------------------
-Comp                macro     Exp1 Exp2
-                    mset      #' '
-                    mreq      1,2:Exp1 Exp2
-                    #push
-                    #spauto   :sp
-                    push
-                    #ais
-                    @@Eval    a$$$,sp = ~1~
-                    @@Eval    b$$$,sp = ~2~
-                    @@_cmp_.s a$$$,sp b$$$,sp
-                    ais       #:ais
-                    pull
-                    #pull
-                    endm
-;-------------------------------------------------------------------------------
-Eval8               macro
-                    mset      #
-                    @_Eval_   ~0.5~\,~1~
-                    endm
-;-------------------------------------------------------------------------------
-Eval16              macro
-                    mset      #
-                    @_Eval_   ~0.5~\,~1~
-                    endm
-;-------------------------------------------------------------------------------
-Eval24              macro
-                    mset      #
-                    @_Eval_   ~0.5~\,~1~
-                    endm
-;-------------------------------------------------------------------------------
-Eval32              macro
-                    mset      #
-                    @_Eval_   ~0.5~\,~1~
-                    endm
-;-------------------------------------------------------------------------------
-Eval40              macro
-                    mset      #
-                    @_Eval_   ~0.5~\,~1~
-                    endm
-;-------------------------------------------------------------------------------
-Eval48              macro
-                    mset      #
-                    @_Eval_   ~0.5~\,~1~
-                    endm
-;-------------------------------------------------------------------------------
-Eval56              macro
-                    mset      #
-                    @_Eval_   ~0.5~\,~1~
-                    endm
-;-------------------------------------------------------------------------------
-Eval64              macro
-                    mset      #
-                    @_Eval_   ~0.5~\,~1~
-                    endm
-;-------------------------------------------------------------------------------
-StrMath             macro
-          #ifnb ~1~
-            #ifdef ~1,~
-              #ifnz ::~1,~
-                    @_DoStr   {::~1,~*8}\,~1~\,~2~
-                    mexit
-              #endif
-            #endif
-          #endif
-                    mset      #
-                    mtrim     1
-                    @@_StkMthMax_ ~1,~
-                    #temp     :mexit
-                    @_DoStr   {:temp}\,~1~\,~2~
-                    endm
-;-------------------------------------------------------------------------------
-Str16               macro     [Number],[ResultString]
-                    @_DoStr   16\,~1~\,~2~
-                    endm
-;-------------------------------------------------------------------------------
-Str24               macro     [Number],[ResultString]
-                    @_DoStr   24\,~1~\,~2~
-                    endm
-;-------------------------------------------------------------------------------
-Str32               macro     [Number],[ResultString]
-                    @_DoStr   32\,~1~\,~2~
-                    endm
-;-------------------------------------------------------------------------------
-Str40               macro     [Number],[ResultString]
-                    @_DoStr   40\,~1~\,~2~
-                    endm
-;-------------------------------------------------------------------------------
-Str48               macro     [Number],[ResultString]
-                    @_DoStr   48\,~1~\,~2~
-                    endm
-;-------------------------------------------------------------------------------
-Str56               macro     [Number],[ResultString]
-                    @_DoStr   56\,~1~\,~2~
-                    endm
-;-------------------------------------------------------------------------------
-Str64               macro     [Number],[ResultString]
-                    @_DoStr   64\,~1~\,~2~
                     endm
 
 ;*******************************************************************************
@@ -2751,11 +2394,11 @@ f~1~                exp       :temp-1
                     mset      0,{:pc}
 NUMBER_OF_OS_CALLS  set       :temp               ;Number of opcodes defined (so far)
                     org       :ppc
-          #if :temp > MAX_OS_CALLS
-                    merror    {MAX_OS_CALLS} MAX_OS_CALLS, need {:temp} (+{:temp-MAX_OS_CALLS})
-          #endif
           #if :temp > 256
                     #Warning  Double byte opcodes, OS => OSW
+          #endif
+          #if :temp > MAX_OS_CALLS
+                    merror    {MAX_OS_CALLS} MAX_OS_CALLS, need {:temp} (+{:temp-MAX_OS_CALLS})
           #endif
                     #pull
 ;-------------------------------------------------------------------------------
@@ -2911,7 +2554,7 @@ S_QWORD             def       0,8                 ;size of 64-bit quantity
 MAXERROR            def       0                   ;used for error codes
 ERASED_STATE        def       -1                  ;default [E]EPROM/Flash Erased State
           #ifndef STACK_IN_LOW_RAM
-            #ifdef XRAM
+            #!if XRAM_END-XRAM > RAM_END-RAM
 STACKTOP            def       XRAM_END+1          ;top-of-stack plus one for use with LDHX, TXS
             #endif
           #endif
@@ -2947,7 +2590,9 @@ MAX_OS_CALLS        def       64                  ;default room for OS calls (68
 ?                   macro
                     mswap     1,:loop
           #ifdef ~1~&~1~_END
+            #if ~1~_END > ~1~
                     #Message  ~1~~'..........:'.1.{10-:1}~ {~1~(h)}-{~1~_END(h)} ({~1~_END-~1~+1} bytes)
+            #endif
           #else ifdef ~1~
                     #Message  ~1~~'..........:'.1.{10-:1}~ {~1~(h)}-{~1~&$FF0000+:PAGE_END(h)} ({~1~&$FF0000+:PAGE_END-~1~+1} bytes)
           #endif
@@ -2967,9 +2612,9 @@ MAX_OS_CALLS        def       64                  ;default room for OS calls (68
           #else
                     #Message  REQUIRED_STACK: None!
           #endif
-
-;--- Allocate variable space (accounting for required stack)
-
+          ;--------------------------------------
+          ; Allocate variable space (accounting for required stack)
+          ;--------------------------------------
 ?                   macro     FromAddress,ToAddress
           #ifdef MAXTASKS
                     mdef      2,STACKTOP-{REQUIRED_STACK*MAXTASKS}-1
@@ -2989,13 +2634,18 @@ MAX_OS_CALLS        def       64                  ;default room for OS calls (68
 #else
                     @?        RAM
 #endif
-          ;--- Flash page mask
+          ;-------------------------------------- ;Flash page mask
 #ifdef FLASH_PAGE_SIZE
 FLASH_PAGE_MASK     def       FLASH_PAGE_SIZE-1^$FFFF
                     #Message  FLASH_PAGE_SIZE = {FLASH_PAGE_SIZE} (FLASH_PAGE_MASK = {FLASH_PAGE_MASK(h)})
 #endif
 ;------------------- Flash Clock calculation based on bus KHZ ------------------
 #ifhcs
+          #ifmmu
+            #ifexists mmu.inc
+                    #Uses     mmu.inc
+            #endif
+          #endif
   #ifdef _PA_¦_PT_¦_PL_
 MIN_FLASH_KHZ       def       800
 MAX_FLASH_KHZ       def       1000

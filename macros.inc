@@ -3,7 +3,7 @@
 ;* Programmer: Tony Papadimitriou <tonyp@acm.org>
 ;* Purpose   : Sample macro definitions for ASM8 (Win32 & Linux versions, only)
 ;* Language  : Motorola/Freescale/NXP HC08/9S08 Assembly Language (aspisys.com/ASM8)
-;* Status    : FREEWARE Copyright (c) 2020 by Tony Papadimitriou <tonyp@acm.org>
+;* Status    : FREEWARE Copyright (c) 2021 by Tony Papadimitriou <tonyp@acm.org>
 ;* Original  : http://www.aspisys.com/code/hc08/macros.html
 ;* Note(s)   : Use: #Include macros.inc
 ;*           : All macros are written so that they are compatible with all
@@ -106,13 +106,13 @@
 ;*           :                Added ADC.W, ADC.L, SBC.W and SBC.L macros
 ;*           :                Several macros improved.
 ;*           : W A R N I N G  Because of the new ~[n.p]~ capability the six
-;*           :                macros SUB.[BWL] and CMP.[BWL] now 'subtract' 2nd
-;*           :                from 1st for immediate mode operand(s).  These
-;*           :                macros now also work with X-indexed mode in all
-;*           :                cases.  IMPORTANT: Source code in apps that use
-;*           :                any of these macros may need revision to correct
-;*           :                the 1st/2nd parameter order when immediate mode is
-;*           :                involved.
+;*           : W A R N I N G  macros SUB.[BWL] and CMP.[BWL] now 'subtract' 2nd
+;*           : W A R N I N G  from 1st for immediate mode operand(s).  These
+;*           : W A R N I N G  macros now also work with X-indexed mode in all
+;*           : W A R N I N G  cases.  IMPORTANT: Source code in apps that use
+;*           : W A R N I N G  any of these macros may need revision to correct
+;*           : W A R N I N G  the 1st/2nd parameter order when immediate mode is
+;*           : W A R N I N G  involved.
 ;*           : 13.03.03 v2.01 Added calls to _#_ and _not_#_ in some macros
 ;*           :                Improved ReVector, tst.w, and tst.l macros
 ;*           :                Moved some frequently used macros to COMMON.INC
@@ -154,6 +154,8 @@
 ;*           : 20.06.04 v2.27 Simplified ReadPin macro
 ;*           : 20.06.17 v2.28 Removed cbeq macro and rewrote cbne to use only cbeq
 ;*           : 20.07.15 v2.29 Added CopyPin macro to copy pin state to another pin
+;*           : 21.02.11 v2.30 No longer calls @MyDefaultDirectives at inclusion
+;*           : 21.04.09 v2.31 Show hint when sema is already defined
 ;*******************************************************************************
 
                     #Exit     _MACROS_
@@ -179,7 +181,7 @@ MyDefaultDirectives macro
 
 ;*******************************************************************************
 ;*******************************************************************************
-                    @MyDefaultDirectives          ;this one called at inclusion
+                   ;@MyDefaultDirectives          ;this one called at inclusion
 ;*******************************************************************************
 ;*******************************************************************************
 
@@ -304,8 +306,7 @@ CopyRange           macro     #Source,#Destination,[#]Size
           #ifparm ~,1~~,2~
                     merror    Source/Destination is indexed
           #endif
-                    @@_#_     ~1~
-                    @@_#_     ~2~
+                    @@_#_     ~1~ ~2~
                     @@_not_x_ ~3~
                     mset      0,cphx              ;;default comparison is word
           #ifnb ~3~ = ~#3~                        ;except for immediate mode
@@ -2150,7 +2151,6 @@ fLockAttempt        macro     sema
           #endif
                     endm
 
-
 ;*******************************************************************************
 
 fUnlock             macro
@@ -2202,7 +2202,9 @@ Unlock~2~           proc
 #endif
                     mdo
                     mswap     1,:mloop
-          #ifndef sema~1~
+          #ifdef sema~1~
+                    #Hint     sema~1~ already defined
+          #else
 sema~1~             exp       :index
 MAXSEMAS            set       sema~1~
                     mset      0,~1~,~text~
