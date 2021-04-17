@@ -9,14 +9,11 @@
 ;* Status    : Licensed under GPLv3
 ;* History   : 20.08.02 Converted to ASM8 (http://www.aspisys.com/asm8.htm)
 ;*           :          Translated to English
+;*           : 21.04.18 Minor refactoring and optimizations
 ;*******************************************************************************
 
                     #ListOff
-          #ifexists qt4.inc
                     #Uses     qt4.inc
-          #else
-                    #Uses     /pemicro/ics08qtqyz/qtqy_registers.inc
-          #endif
                     #ListOn
                     #MCF
 
