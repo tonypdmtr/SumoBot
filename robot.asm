@@ -10,6 +10,7 @@
 ;* History   : 20.08.02 Converted to ASM8 (http://www.aspisys.com/asm8.htm)
 ;*           :          Translated to English
 ;*           : 21.04.18 Minor refactoring and optimizations
+;*           : 21.04.30 Minor refactoring and optimizations
 ;*******************************************************************************
 
                     #ListOff
@@ -36,16 +37,15 @@ ResetOverflowFlag   macro
                     endm
 
 ;*******************************************************************************
-; Definition of Variables / Constants - can be bit or registers -
+; Pin definitions
 ;*******************************************************************************
 
-          ;-------------------------------------- ;PORTA bits
 SFL                 @pin      PORTA,0
 SFR                 @pin      PORTA,1
 
 ;STL                @pin      PORTA,2
 ;STR                @pin      PORTA,3
-          ;-------------------------------------- ;PORTB bits
+
 M1A                 @pin      PORTB,0
 M1B                 @pin      PORTB,1
 M2A                 @pin      PORTB,2
@@ -54,11 +54,7 @@ M2B                 @pin      PORTB,3
 SPA                 @pin      PORTB,4
 
 ;*******************************************************************************
-                    #RAM      RAM                 ;RAM startup specification
-;*******************************************************************************
-
-;*******************************************************************************
-; Reserve RAM spaces and assign labels or numbers
+                    #RAM      RAM
 ;*******************************************************************************
 
 count               rmb       2                   ;counts the amount of timer overflows
@@ -70,31 +66,15 @@ random_number       rmb       2                   ;this will be used to generate
 ;*******************************************************************************
 
 ;*******************************************************************************
-; Configuration of registers, such as that of the OSC, THE CONFIG1 - COP -
+; Configuration of registers, such as that of the OSC, the CONFIG1 - COP -
 ;*******************************************************************************
 
 Start               proc
                     mov       #$01,CONFIG1        ;internal oscillator, turns off COP
           ;--------------------------------------
-          ; Configuration of port registers and other modules
-          ;
-          ; PTA0: SFL
-          ; PTA1: SFR
-          ;
-          ; PTA2: STL
-          ; PTA3: STR
-          ;
-          ;
-          ; PTB0: M1A
-          ; PTB1: M1B
-          ; PTB2: M2A
-          ;
-          ; PTB4: SPA
-          ;--------------------------------------
-                    mov       #%00001111,DDRB     ;4 inputs, 4 outputs
-                    clr       DDRA                ;configure all the PTA as input
-                    clr       PORTB               ;clean the port
-                    mov       #%00010000,PTBPUE   ;pull up SPA
+                    @Off      M1A,M1B,M2A,M2B     ;configure outputs (low initially)
+                    @pullup   SPA                 ;pull up SPA
+;                   @input    SFL,SFR,SPA         ;inputs (reset default)
           ;-------------------------------------- ;preparation of the TIM
                     clr       count               ;clean count
 
@@ -139,9 +119,9 @@ Loop@@              brset     7,TSC,_2@@          ;ask if the timer is overflowi
 
 _2@@                inc       count               ;increment count
                     lda       #5                  ;charge 5
-                    cbeq      count,Finder        ;compare and if count is 5, go to Finder
+                    cbeq      count,Finder        ;if count is 5, go to Finder
                     @ResetOverflowFlag
-                    bra       Loop@@              ;If not, keep counting
+                    bra       Loop@@              ;if not, keep counting
 
 ;*******************************************************************************
 ; "Attack". If it detects a line (wins), it is reset
@@ -150,12 +130,12 @@ _2@@                inc       count               ;increment count
 
 Attack              proc
                     jsr       MoveAlong
-                    @ResetOverflowFlag            ;I do not remember
+                    @ResetOverflowFlag            ;(I do not remember)
 Loop@@              brset     7,TSC,Cont@@
                     brset     SFL,Turn            ;win
                     brset     SFR,Turn
           ;-------------------------------------- ;time delay
-                    lda       #$FF
+                    clra
                     dbnza     *
           ;-------------------------------------- ;end delay
                     brclr     SPA,Scanner         ;lost the enemy, rummage
@@ -219,10 +199,10 @@ _3@@                brset     7,TSC,_4@@          ;ask if the timer is overflowi
 _4@@                @ResetOverflowFlag
                     inc       count               ;increase overflows
                     lda       count
-                    cbeq      time,_5@@           ;Is the right time reached? count = time?
-                    bra       _3@@                ;if I don't get there, keep counting ...
+                    cmpa      time                ;Is the right time reached? count = time?
+                    bne       _3@@                ;if I don't get there, keep counting ...
 
-_5@@                mov       #$06,TSC            ;reset prescaler to / 64
+                    mov       #$06,TSC            ;reset prescaler to / 64
                     bsr       MoveAlong           ;advance again
                     bra       ?Finder             ;return
 
